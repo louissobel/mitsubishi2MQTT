@@ -27,7 +27,7 @@ const PROGMEM char* console_file = "/console.log";
 const PROGMEM char* others_conf = "/others.json";
 const PROGMEM char* syslog_conf = "/syslog.json";
 // pinouts
-const PROGMEM  uint8_t blueLedPin = 2;            // The ESP32 has an internal blue LED at D2 (GPIO 02)
+const PROGMEM  uint8_t blueLedPin = 15;            // The ESP32 has an internal blue LED at D2 (GPIO 02)
 #else
 const PROGMEM char* wifi_conf = "wifi.json";
 const PROGMEM char* mqtt_conf = "mqtt.json";
