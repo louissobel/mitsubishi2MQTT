@@ -34,6 +34,7 @@ ESP8266WebServer server(80);  // ESP8266 web
 #include <DNSServer.h>        // DNS for captive portal
 #include <math.h>             // for rounding to Fahrenheit values
 
+#include <SimpleSyslog.h>
 #include <ArduinoOTA.h>   // for OTA
 #include <HeatPump.h>     // SwiCago library: https://github.com/SwiCago/HeatPump
 //#include <Ticker.h>     // for LED status (Using a Wemos D1-Mini)
@@ -68,6 +69,8 @@ boolean captive = false;
 boolean mqtt_config = false;
 boolean wifi_config = false;
 boolean remoteTempActive = false;
+
+SimpleSyslog *syslog;
 
 //HVAC
 HeatPump hp;
@@ -112,6 +115,7 @@ void setup() {
   setDefaults();
   wifi_config_exists = loadWifi();
   loadOthers();
+  loadSyslog();
   loadUnit();
   mqtt_client_id = hostname;
 #ifdef ESP32
@@ -123,6 +127,12 @@ void setup() {
     if (SPIFFS.exists(console_file)) {
       SPIFFS.remove(console_file);
     }
+    if (use_syslog) {
+      syslog = new SimpleSyslog(hostname.c_str(), syslog_application.c_str(), syslog_host.c_str(), syslog_port.toInt());
+    }
+
+    write_log(PRI_INFO, "WiFi initialized");
+
     //write_log("Starting Mitsubishi2MQTT");
     //Web interface
     server.on("/", handleRoot);
@@ -133,6 +143,7 @@ void setup() {
     server.on("/unit", handleUnit);
     server.on("/status", handleStatus);
     server.on("/others", handleOthers);
+    server.on("/syslog", handleSyslog);
     server.on("/metrics", handleMetrics);
     server.onNotFound(handleNotFound);
     if (login_password.length() > 0) {
@@ -361,6 +372,48 @@ bool loadOthers() {
   }
   return true;
 }
+
+bool loadSyslog() {
+  if (!SPIFFS.exists(syslog_conf)) {
+    // Serial.println(F("Syslog config file not exist!"));
+    return false;
+  }
+  File configFile = SPIFFS.open(syslog_conf, "r");
+  if (!configFile) {
+    return false;
+  }
+
+  size_t size = configFile.size();
+  if (size > 1024) {
+    return false;
+  }
+  std::unique_ptr<char[]> buf(new char[size]);
+
+  configFile.readBytes(buf.get(), size);
+  const size_t capacity = JSON_OBJECT_SIZE(4) + 200;
+  DynamicJsonDocument doc(capacity);
+  deserializeJson(doc, buf.get());
+
+  syslog_host = doc["host"].as<String>();
+  syslog_port = doc["port"].as<String>();
+
+  String active = doc["active"].as<String>();
+  if (strcmp(active.c_str(), "ON") == 0) {
+    use_syslog = true;
+  }
+
+  String facility = doc["facility"].as<String>();
+  syslog_facility = FAC_LOCAL0;
+  for (int i = 0; i < 8; i++) {
+    if (strcmp(facility.c_str(), SYSLOG_FACILITIES[i]) == 0) {
+      syslog_facility = FAC_LOCAL0 + i;
+      break;
+    }
+  }
+
+  return true;
+}
+
 void saveMqtt(String mqttFn, String mqttHost, String mqttPort, String mqttUser,
               String mqttPwd, String mqttTopic) {
 
@@ -444,6 +497,28 @@ void saveOthers(String haa, String haat, String debugPckts, String debugLogs) {
   configFile.close();
 }
 
+
+void saveSyslog(String active, String host, String port, String facility) {
+  const size_t capacity = JSON_OBJECT_SIZE(4) + 130;
+  DynamicJsonDocument doc(capacity);
+
+  // if port is empty, we use default port
+  if (port[0] == '\0') port = "514";
+
+  doc["active"] = active;
+  doc["host"] = host;
+  doc["port"] = port;
+  doc["facility"] = facility;
+
+  File configFile = SPIFFS.open(syslog_conf, "w");
+  if (!configFile) {
+    // Serial.println(F("Failed to open syslog file for writing"));
+  }
+  serializeJson(doc, configFile);
+  delay(10);
+  configFile.close();
+}
+
 // Initialize captive portal page
 void initCaptivePortal() {
   // Serial.println(F("Starting captive portal"));
@@ -493,6 +568,7 @@ void setDefaults() {
   others_haa = true;
   others_haa_topic = "homeassistant";
 
+  use_syslog = false;
 }
 
 boolean initWifi() {
@@ -656,6 +732,7 @@ void handleSetup() {
     menuSetupPage.replace("_TXT_WIFI_",FPSTR(txt_WIFI));
     menuSetupPage.replace("_TXT_UNIT_",FPSTR(txt_unit));
     menuSetupPage.replace("_TXT_OTHERS_",FPSTR(txt_others));
+    menuSetupPage.replace("_TXT_SYSLOG_",FPSTR(txt_syslog));
     menuSetupPage.replace("_TXT_RESET_",FPSTR(txt_reset));
     menuSetupPage.replace("_TXT_BACK_",FPSTR(txt_back));
     menuSetupPage.replace("_TXT_RESETCONFIRM_",FPSTR(txt_reset_confirm));
@@ -712,6 +789,56 @@ void handleOthers() {
       othersPage.replace("_DEBUG_LOGS_OFF_", "selected");
     }
     sendWrappedHTML(othersPage);
+  }
+}
+
+void handleSyslog() {
+  if (!checkLogin()) return;
+
+  if (server.method() == HTTP_POST) {
+    saveSyslog(server.arg("active"), server.arg("host"), server.arg("port"), server.arg("facility"));
+    rebootAndSendPage();
+  }
+  else {
+    String syslogPage =  FPSTR(html_page_syslog);
+    syslogPage.replace("_TXT_SAVE_", FPSTR(txt_save));
+    syslogPage.replace("_TXT_BACK_", FPSTR(txt_back));
+    syslogPage.replace("_TXT_F_ON_", FPSTR(txt_f_on));
+    syslogPage.replace("_TXT_F_OFF_", FPSTR(txt_f_off));
+    syslogPage.replace("_TXT_SYSLOG_TITLE_", FPSTR(txt_syslog_title));
+    syslogPage.replace("_TXT_SYSLOG_ACTIVE_", FPSTR(txt_syslog_active));
+    syslogPage.replace("_TXT_SYSLOG_HOST_", FPSTR(txt_syslog_host));
+    syslogPage.replace("_TXT_SYSLOG_PORT_", FPSTR(txt_syslog_port));
+    syslogPage.replace("_TXT_SYSLOG_FACILITY_", FPSTR(txt_syslog_facility));
+
+    syslogPage.replace("_SYSLOG_HOST_", syslog_host);
+    syslogPage.replace("_SYSLOG_PORT_", syslog_port);
+    if (use_syslog) {
+      syslogPage.replace("_SYSLOG_ON_", "selected");
+    }
+    else {
+      syslogPage.replace("_SYSLOG_OFF_", "selected");
+    }
+
+    if (syslog_facility == FAC_LOCAL0) {
+      syslogPage.replace("_SYSLOG_LOCAL0_FACILITY_", "selected");
+    } else if (syslog_facility == FAC_LOCAL1) {
+      syslogPage.replace("_SYSLOG_LOCAL1_FACILITY_", "selected");
+    } else if (syslog_facility == FAC_LOCAL2) {
+      syslogPage.replace("_SYSLOG_LOCAL2_FACILITY_", "selected");
+    } else if (syslog_facility == FAC_LOCAL3) {
+      syslogPage.replace("_SYSLOG_LOCAL3_FACILITY_", "selected");
+    } else if (syslog_facility == FAC_LOCAL4) {
+      syslogPage.replace("_SYSLOG_LOCAL4_FACILITY_", "selected");
+    } else if (syslog_facility == FAC_LOCAL5) {
+      syslogPage.replace("_SYSLOG_LOCAL5_FACILITY_", "selected");
+    } else if (syslog_facility == FAC_LOCAL6) {
+      syslogPage.replace("_SYSLOG_LOCAL6_FACILITY_", "selected");
+    } else if (syslog_facility == FAC_LOCAL7) {
+      syslogPage.replace("_SYSLOG_LOCAL7_FACILITY_", "selected");
+    }
+
+    sendWrappedHTML(syslogPage);
   }
 }
 
@@ -1243,10 +1370,21 @@ void handleUploadLoop() {
   delay(0);
 }
 
-void write_log(String log) {
-  File logFile = SPIFFS.open(console_file, "a");
-  logFile.println(log);
-  logFile.close();
+void write_log(uint8_t level, char* format, ...) {
+  if(!use_syslog || syslog == NULL) return;
+
+  uint8_t max_level = PRI_INFO;
+  if(_debugModeLogs) max_level = PRI_DEBUG;
+
+  if(level > max_level) return;
+
+  va_list args;
+  va_start(args, format);
+  char buf[MAX_SYSLOG_MESSAGE_LENGTH];
+  vsnprintf(buf, MAX_SYSLOG_MESSAGE_LENGTH, format, args);
+  va_end(args);
+
+  syslog->printf(syslog_facility, level, buf);
 }
 
 heatpumpSettings change_states(heatpumpSettings settings) {
@@ -1401,15 +1539,16 @@ void hpCheckRemoteTemp(){
 
 
 void hpPacketDebug(byte* packet, unsigned int length, const char* packetDirection) {
-  if (_debugModePckts) {
-    String message;
-    for (unsigned int idx = 0; idx < length; idx++) {
-      if (packet[idx] < 16) {
-        message += "0"; // pad single hex digits with a 0
-      }
-      message += String(packet[idx], HEX) + " ";
+  String message;
+  for (unsigned int idx = 0; idx < length; idx++) {
+    if (packet[idx] < 16) {
+      message += "0"; // pad single hex digits with a 0
     }
+    message += String(packet[idx], HEX) + " ";
+  }
+  write_log(PRI_DEBUG, "Packet %s: %s", packetDirection, message.c_str());
 
+  if (_debugModePckts) {
     const size_t bufferSize = JSON_OBJECT_SIZE(10);
     StaticJsonDocument<bufferSize> root;
 

@@ -25,6 +25,7 @@ const PROGMEM char* mqtt_conf = "/mqtt.json";
 const PROGMEM char* unit_conf = "/unit.json";
 const PROGMEM char* console_file = "/console.log";
 const PROGMEM char* others_conf = "/others.json";
+const PROGMEM char* syslog_conf = "/syslog.json";
 // pinouts
 const PROGMEM  uint8_t blueLedPin = 2;            // The ESP32 has an internal blue LED at D2 (GPIO 02)
 #else
@@ -33,6 +34,7 @@ const PROGMEM char* mqtt_conf = "mqtt.json";
 const PROGMEM char* unit_conf = "unit.json";
 const PROGMEM char* console_file = "console.log";
 const PROGMEM char* others_conf = "others.json";
+const PROGMEM char* syslog_conf = "syslog.json";
 // pinouts
 const PROGMEM  uint8_t blueLedPin = LED_BUILTIN; // Onboard LED = digital pin 2 "D4" (blue LED on WEMOS D1-Mini)
 #endif
@@ -62,6 +64,15 @@ const PROGMEM char* mqtt_payload_unavailable = "offline";
 //Define global variables for Others settings
 bool others_haa;
 String others_haa_topic;
+
+//Define global variables for Syslog settings
+bool use_syslog;
+String syslog_host;
+String syslog_port;
+uint8_t syslog_facility;
+String syslog_application = "mitsubishi2mqtt";
+const size_t MAX_SYSLOG_MESSAGE_LENGTH = 128;
+const char* SYSLOG_FACILITIES[8] = {"local0", "local1", "local2", "local3", "local4", "local5", "local6", "local7"};
 
 // Define global variables for HA topics
 String ha_system_set_topic;

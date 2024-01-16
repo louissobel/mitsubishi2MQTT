@@ -78,6 +78,11 @@ const char html_menu_setup[] PROGMEM = R"====(
     </form>
 </p>
 <p>
+    <form action='/syslog' method='get'>
+        <button>_TXT_SYSLOG_</button>
+    </form>
+</p>
+<p>
     <form onsubmit="return confirm(' _TXT_RESETCONFIRM_ ');">
         <button type='submit' name='RESET' class='button bred'>_TXT_RESET_</button>
     </form>

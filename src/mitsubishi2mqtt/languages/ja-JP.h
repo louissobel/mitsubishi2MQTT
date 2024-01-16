@@ -26,6 +26,7 @@ const char txt_MQTT[] PROGMEM = "MQTT";
 const char txt_WIFI[] PROGMEM = "WIFI";
 const char txt_unit[] PROGMEM = "エアコン本体";
 const char txt_others[] PROGMEM = "その他";
+const char txt_syslog[] PROGMEM = "Syslog";
 const char txt_reset[] PROGMEM = "初期化";
 const char txt_reset_confirm[] PROGMEM = "Do you really want to reset this unit?";
 
@@ -74,6 +75,13 @@ const char txt_others_haauto[] PROGMEM = "HA自動検出";
 const char txt_others_hatopic[] PROGMEM = "HA自動検出トピック";
 const char txt_others_debug_packets[] PROGMEM = "MQTT topic debug packets";
 const char txt_others_debug_log[] PROGMEM = "MQTT topic debug logs";
+
+//Page Syslog
+const char txt_syslog_title[] PROGMEM = "Syslog Parameters";
+const char txt_syslog_active[] PROGMEM = "Syslog";
+const char txt_syslog_host[] PROGMEM = "Host";
+const char txt_syslog_port[] PROGMEM = "Port (default 514)";
+const char txt_syslog_facility[] PROGMEM = "Facility";
 
 //Page Status
 const char txt_status_title[] PROGMEM = "ステータス";
