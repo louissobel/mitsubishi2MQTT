@@ -87,6 +87,21 @@ StaticJsonDocument<JSON_OBJECT_SIZE(12)> rootInfo;
 //Web OTA
 int uploaderror = 0;
 
+void connectHeatpump() {
+  // Connector goes
+  // Blue: 12V
+  // Green: Ground
+  // Yellow: 5V
+  // Black: TX (data _from_ heat pump)
+  // Red: RX (data _to_ heat pump)
+  //
+  // We plug BLACK into 39
+  // We plug RED into 37
+  //
+  // So our RX should be 39, TX 37
+  hp.connect(&Serial1, 39, 37);
+}
+
 void setup() {
   // Start serial for debug before HVAC connect to serial
   Serial.begin(115200);
@@ -198,7 +213,7 @@ void setup() {
     // Allow Remote/Panel
     hp.enableExternalUpdate();
     hp.enableAutoUpdate();
-    hp.connect(&Serial);
+    connectHeatpump();
     heatpumpStatus currentStatus = hp.getStatus();
     heatpumpSettings currentSettings = hp.getSettings();
     rootInfo["roomTemperature"]     = convertCelsiusToLocalUnit(currentStatus.roomTemperature, useFahrenheit);
@@ -962,7 +977,7 @@ void handleStatus() {
   disconnected += FPSTR(txt_status_disconnect);
   disconnected += F("</b></span>");
 
-  if ((Serial) and hp.isConnected()) statusPage.replace(F("_HVAC_STATUS_"), connected);
+  if ((Serial1) and hp.isConnected()) statusPage.replace(F("_HVAC_STATUS_"), connected);
   else  statusPage.replace(F("_HVAC_STATUS_"), disconnected);
   if (mqtt_client.connected()) statusPage.replace(F("_MQTT_STATUS_"), connected);
   else statusPage.replace(F("_MQTT_STATUS_"), disconnected);
@@ -1389,7 +1404,7 @@ void write_log(uint8_t level, char* format, ...) {
 
 heatpumpSettings change_states(heatpumpSettings settings) {
   if (server.hasArg("CONNECT")) {
-    hp.connect(&Serial);
+    connectHeatpump();
   }
   else {
     bool update = false;
