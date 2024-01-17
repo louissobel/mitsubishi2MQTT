@@ -1000,6 +1000,7 @@ void handleControl() {
     return;
   }
   heatpumpSettings settings = hp.getSettings();
+  heatpumpStatus status = hp.getStatus();
   settings = change_states(settings);
   String controlPage =  FPSTR(html_page_control);
   String headerContent = FPSTR(html_common_header);
@@ -1010,7 +1011,8 @@ void handleControl() {
   controlPage.replace("_TXT_BACK_", FPSTR(txt_back));
   controlPage.replace("_UNIT_NAME_", hostname);
   controlPage.replace("_RATE_", "60");
-  controlPage.replace("_ROOMTEMP_", String(convertCelsiusToLocalUnit(hp.getRoomTemperature(), useFahrenheit)));
+  controlPage.replace("_ROOMTEMP_", String(convertCelsiusToLocalUnit(status.roomTemperature, useFahrenheit)));
+  controlPage.replace("_TXT_CURRENT_ACTION_", hpGetAction(status, settings));
   controlPage.replace("_USE_FAHRENHEIT_", (String)useFahrenheit);
   controlPage.replace("_TEMP_SCALE_", getTemperatureScale());
   controlPage.replace("_HEAT_MODE_SUPPORT_", (String)supportHeatMode);
