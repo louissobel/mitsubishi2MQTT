@@ -1631,6 +1631,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       } else {
         return;
       }
+
+      if (modeUpper != "FAN" && !hp.getStatus().operating) {
+        rootInfo["action"] = "idle";
+      }
       hpSendLocalState();
       hp.setPowerSetting("ON");
       hp.setModeSetting(modeUpper.c_str());
