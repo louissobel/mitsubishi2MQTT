@@ -1,2 +1,3 @@
 - show actual HEAT / COOL when in auto mode
 - hard code the celsius <--> fahrenheit mapping
+- fix Metrics string comparisons
