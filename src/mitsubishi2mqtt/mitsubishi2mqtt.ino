@@ -214,16 +214,6 @@ void setup() {
     hp.enableExternalUpdate();
     hp.enableAutoUpdate();
     connectHeatpump();
-    heatpumpStatus currentStatus = hp.getStatus();
-    heatpumpSettings currentSettings = hp.getSettings();
-    rootInfo["roomTemperature"]     = convertCelsiusToLocalUnit(currentStatus.roomTemperature, useFahrenheit);
-    rootInfo["temperature"]         = convertCelsiusToLocalUnit(currentSettings.temperature, useFahrenheit);
-    rootInfo["fan"]                 = currentSettings.fan;
-    rootInfo["vane"]                = currentSettings.vane;
-    rootInfo["wideVane"]            = currentSettings.wideVane;
-    rootInfo["mode"]                = hpGetMode(currentSettings);
-    rootInfo["action"]              = hpGetAction(currentStatus, currentSettings);
-    rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
     lastTempSend = millis();
   }
   else {
@@ -1469,7 +1459,6 @@ heatpumpSettings change_states(heatpumpSettings settings) {
 void readHeatPumpSettings() {
   heatpumpSettings currentSettings = hp.getSettings();
 
-  rootInfo.clear();
   rootInfo["temperature"]     = convertCelsiusToLocalUnit(currentSettings.temperature, useFahrenheit);
   rootInfo["fan"]             = currentSettings.fan;
   rootInfo["vane"]            = currentSettings.vane;
@@ -1490,7 +1479,9 @@ void hpSettingsChanged() {
     if (_debugModeLogs) mqtt_client.publish(ha_debug_logs_topic.c_str(), (char*)("Failed to publish hp settings"));
   }
 
-  hpStatusChanged(hp.getStatus());
+  if (hp.getStatus().roomTemperature != 0) {
+    publishMQTTState(hp.getStatus());
+  }
 }
 
 String hpGetMode(heatpumpSettings hpSettings) {
@@ -1534,47 +1525,32 @@ String hpGetAction(heatpumpStatus hpStatus, heatpumpSettings hpSettings) {
 void hpStatusChanged(heatpumpStatus currentStatus) {
   write_log(PRI_INFO, "Status change: %s", serializeStatus(currentStatus).c_str());
 
-  maybeUpdateMQTT(currentStatus);
+  publishMQTTState(currentStatus);
 }
 
-void maybeUpdateMQTT(heatpumpStatus currentStatus) {
-  if (millis() - lastTempSend > SEND_ROOM_TEMP_INTERVAL_MS) { // only send the temperature every SEND_ROOM_TEMP_INTERVAL_MS (millis rollover tolerant)
-    hpCheckRemoteTemp(); // if the remote temperature feed from mqtt is stale, disable it and revert to the internal thermometer.
-
+void publishMQTTState(heatpumpStatus currentStatus) {
     // send room temp, operating info and all information
-    heatpumpSettings currentSettings = hp.getSettings();
+  heatpumpSettings currentSettings = hp.getSettings();
 
-    if (currentStatus.roomTemperature == 0) return;
+  rootInfo.clear();
+  rootInfo["roomTemperature"]     = convertCelsiusToLocalUnit(currentStatus.roomTemperature, useFahrenheit);
+  rootInfo["temperature"]         = convertCelsiusToLocalUnit(currentSettings.temperature, useFahrenheit);
+  rootInfo["fan"]                 = currentSettings.fan;
+  rootInfo["vane"]                = currentSettings.vane;
+  rootInfo["wideVane"]            = currentSettings.wideVane;
+  rootInfo["mode"]                = hpGetMode(currentSettings);
+  rootInfo["action"]              = hpGetAction(currentStatus, currentSettings);
+  rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
+  String mqttOutput;
+  serializeJson(rootInfo, mqttOutput);
 
-    rootInfo.clear();
-    rootInfo["roomTemperature"]     = convertCelsiusToLocalUnit(currentStatus.roomTemperature, useFahrenheit);
-    rootInfo["temperature"]         = convertCelsiusToLocalUnit(currentSettings.temperature, useFahrenheit);
-    rootInfo["fan"]                 = currentSettings.fan;
-    rootInfo["vane"]                = currentSettings.vane;
-    rootInfo["wideVane"]            = currentSettings.wideVane;
-    rootInfo["mode"]                = hpGetMode(currentSettings);
-    rootInfo["action"]              = hpGetAction(currentStatus, currentSettings);
-    rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
-    String mqttOutput;
-    serializeJson(rootInfo, mqttOutput);
-
-    if (!mqtt_client.publish_P(ha_state_topic.c_str(), mqttOutput.c_str(), false)) {
-      if (_debugModeLogs) mqtt_client.publish(ha_debug_logs_topic.c_str(), (char*)("Failed to publish hp status change"));
-    }
-
-    lastTempSend = millis();
+  write_log(PRI_INFO, "Pushing state to MQTT %s", ha_state_topic.c_str());
+  if (!mqtt_client.publish_P(ha_state_topic.c_str(), mqttOutput.c_str(), false)) {
+    if (_debugModeLogs) mqtt_client.publish(ha_debug_logs_topic.c_str(), (char*)("Failed to publish hp status change"));
   }
-}
 
-void hpCheckRemoteTemp(){
-    if (remoteTempActive && (millis() - lastRemoteTemp > CHECK_REMOTE_TEMP_INTERVAL_MS)) { //if it's been 5 minutes since last remote_temp message, revert back to HP internal temp sensor
-     remoteTempActive = false;
-     float temperature = 0;
-     hp.setRemoteTemperature(temperature);
-     hp.update();
-    }
+  lastTempSend = millis();
 }
-
 
 void hpPacketDebug(byte* packet, unsigned int length, const char* packetDirection) {
   String message;
@@ -1602,7 +1578,6 @@ void hpPacketDebug(byte* packet, unsigned int length, const char* packetDirectio
 // Used to send a dummy packet in state topic to validate action in HA interface
 // HA change GUI appareance before having a valid state from the unit
 void hpSendLocalState() {
-
   String mqttOutput;
   serializeJson(rootInfo, mqttOutput);
   mqtt_client.publish(ha_debug_pckts_topic.c_str(),  mqttOutput.c_str(), false);
@@ -1610,7 +1585,7 @@ void hpSendLocalState() {
     if (_debugModeLogs) mqtt_client.publish(ha_debug_logs_topic.c_str(), (char*)("Failed to publish dummy hp status change"));
   }
 
-  // Restart counter for waiting enought time for the unit to update before sending a state packet
+  // Restart counter for waiting enought time for the unit to update before periodically sending a state packet
   lastTempSend = millis();
 }
 
@@ -2036,6 +2011,14 @@ void loop() {
     } else {
         hpConnectionRetries = 0;
         hp.sync();
+
+        // if the external remote temperature feed from is stale, disable it and revert to the internal thermometer.
+        if (remoteTempActive && (millis() - lastRemoteTemp > CHECK_REMOTE_TEMP_INTERVAL_MS)) {
+          remoteTempActive = false;
+          float temperature = 0;
+          hp.setRemoteTemperature(temperature);
+          hp.update();
+        }
     }
 
 	if (mqtt_config) {
@@ -2050,7 +2033,14 @@ void loop() {
 		else if (mqtt_client.state() > MQTT_CONNECTED ) return;
 		//MQTT connected send status
 		else {
-		  maybeUpdateMQTT(hp.getStatus());
+       // only send the temperature every SEND_ROOM_TEMP_INTERVAL_MS (millis rollover tolerant)
+      if (millis() - lastTempSend > SEND_ROOM_TEMP_INTERVAL_MS) {
+        heatpumpStatus currentStatus = hp.getStatus();
+        if (currentStatus.roomTemperature != 0) {
+		      publishMQTTState(currentStatus);
+        }
+      }
+
 		  mqtt_client.loop();
 		}
 	}
