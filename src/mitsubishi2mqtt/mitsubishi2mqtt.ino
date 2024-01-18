@@ -1725,7 +1725,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       hp.sendCustomPacket(bytes, byteCount);
   }
   else {
-    mqtt_client.publish(ha_debug_logs_topic.c_str(), strcat((char *)"heatpump: wrong mqtt topic: ", topic));
+    String msg = String("heatpump: wrong mqtt topic: ") + topic;
+    mqtt_client.publish(ha_debug_logs_topic.c_str(), msg.c_str());
   }
 }
 
