@@ -178,7 +178,7 @@ void setup() {
     hpConnectionRetries = 0;
     hpConnectionTotalRetries = 0;
     if (loadMqtt()) {
-      //write_log("Starting MQTT");
+      write_log(PRI_INFO, "Starting MQTT");
       // setup HA topics
       ha_mode_set_topic        = mqtt_topic + "/" + mqtt_fn + "/mode/set";
       ha_temp_set_topic        = mqtt_topic + "/" + mqtt_fn + "/temp/set";
@@ -203,7 +203,7 @@ void setup() {
       initMqtt();
     }
     else {
-      //write_log("Not found MQTT config go to configuration page");
+      write_log(PRI_INFO, "MQTT not configured");
     }
     // Serial.println(F("Connection to HVAC. Stop serial log."));
     //write_log("Connection to HVAC");
@@ -1404,6 +1404,18 @@ void write_log(uint8_t level, char* format, ...) {
   syslog->printf(syslog_facility, level, buf);
 }
 
+String serializeSettings(heatpumpSettings settings) {
+  char serialized[64];
+  snprintf(serialized, 64, "P:%s M:%s T:%f F:%s V:%s W:%s C:%d", settings.power, settings.mode, settings.temperature, settings.fan, settings.vane, settings.wideVane, settings.connected);
+  return serialized;
+}
+
+String serializeStatus(heatpumpStatus status) {
+  char serialized[64];
+  snprintf(serialized, 64, "R:%f O:%d F:%d", status.roomTemperature, status.operating, status.compressorFrequency);
+  return serialized;
+}
+
 heatpumpSettings change_states(heatpumpSettings settings) {
   if (server.hasArg("CONNECT")) {
     connectHeatpump();
@@ -1447,6 +1459,7 @@ heatpumpSettings change_states(heatpumpSettings settings) {
       update = true;
     }
     if (update) {
+      write_log(PRI_INFO, "Updating settings from web: %s", serializeSettings(settings).c_str());
       hp.setSettings(settings);
     }
   }
@@ -1465,6 +1478,8 @@ void readHeatPumpSettings() {
 }
 
 void hpSettingsChanged() {
+  write_log(PRI_INFO, "Settings change: %s", serializeSettings(hp.getSettings()).c_str());
+
   // send room temp, operating info and all information
   readHeatPumpSettings();
 
@@ -1517,6 +1532,8 @@ String hpGetAction(heatpumpStatus hpStatus, heatpumpSettings hpSettings) {
 }
 
 void hpStatusChanged(heatpumpStatus currentStatus) {
+  write_log(PRI_INFO, "Status change: %s", serializeStatus(currentStatus).c_str());
+
   if (millis() - lastTempSend > SEND_ROOM_TEMP_INTERVAL_MS) { // only send the temperature every SEND_ROOM_TEMP_INTERVAL_MS (millis rollover tolerant)
     hpCheckRemoteTemp(); // if the remote temperature feed from mqtt is stale, disable it and revert to the internal thermometer.
 
@@ -1601,6 +1618,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     message[i] = (char)payload[i];
   }
   message[length] = '\0';
+
+  write_log(PRI_INFO, "MQTT receive: %s %s", topic, message);
 
   // HA topics
   // Receive power topic
