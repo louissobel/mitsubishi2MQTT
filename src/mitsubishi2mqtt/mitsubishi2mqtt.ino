@@ -1534,6 +1534,10 @@ String hpGetAction(heatpumpStatus hpStatus, heatpumpSettings hpSettings) {
 void hpStatusChanged(heatpumpStatus currentStatus) {
   write_log(PRI_INFO, "Status change: %s", serializeStatus(currentStatus).c_str());
 
+  maybeUpdateMQTT(currentStatus);
+}
+
+void maybeUpdateMQTT(heatpumpStatus currentStatus) {
   if (millis() - lastTempSend > SEND_ROOM_TEMP_INTERVAL_MS) { // only send the temperature every SEND_ROOM_TEMP_INTERVAL_MS (millis rollover tolerant)
     hpCheckRemoteTemp(); // if the remote temperature feed from mqtt is stale, disable it and revert to the internal thermometer.
 
@@ -2046,7 +2050,7 @@ void loop() {
 		else if (mqtt_client.state() > MQTT_CONNECTED ) return;
 		//MQTT connected send status
 		else {
-		  hpStatusChanged(hp.getStatus());
+		  maybeUpdateMQTT(hp.getStatus());
 		  mqtt_client.loop();
 		}
 	}
