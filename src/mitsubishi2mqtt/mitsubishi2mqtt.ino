@@ -2006,6 +2006,7 @@ void loop() {
       // Use exponential backoff for retries, where each retry is double the length of the previous one.
       unsigned long durationNextSync = (1 << hpConnectionRetries) * HP_RETRY_INTERVAL_MS;
       if (((millis() - lastHpSync > durationNextSync) or lastHpSync == 0)) {
+        write_log(PRI_INFO, "Not connected to heatpump, retrying...");
         lastHpSync = millis();
         // If we've retried more than the max number of tries, keep retrying at that fixed interval, which is several minutes.
         hpConnectionRetries = min(hpConnectionRetries + 1u, HP_MAX_RETRIES);

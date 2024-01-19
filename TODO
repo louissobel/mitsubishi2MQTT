@@ -1,3 +1,4 @@
 - show actual HEAT / COOL when in auto mode
 - hard code the celsius <--> fahrenheit mapping
+- smartset lets heat go as low as 50... we should support this
 - fix Metrics string comparisons
