@@ -68,7 +68,9 @@ DNSServer dnsServer;
 boolean captive = false;
 boolean mqtt_config = false;
 boolean wifi_config = false;
+
 boolean remoteTempActive = false;
+float lastRemoteTempSet = 0;
 
 SimpleSyslog *syslog;
 
@@ -1541,6 +1543,7 @@ void publishMQTTState(heatpumpStatus currentStatus) {
   rootInfo["mode"]                = hpGetMode(currentSettings);
   rootInfo["action"]              = hpGetAction(currentStatus, currentSettings);
   rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
+  rootInfo["lastRemoteTempSet"]   = lastRemoteTempSet;
   String mqttOutput;
   serializeJson(rootInfo, mqttOutput);
 
@@ -1669,11 +1672,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   else if (strcmp(topic, ha_remote_temp_set_topic.c_str()) == 0) {
     float temperature = strtof(message, NULL);
+
+    rootInfo["lastRemoteTempSet"] = temperature;
+    hpSendLocalState();
+
     if (temperature == 0){ //Remote temp disabled by mqtt topic set
-      remoteTempActive = false; //clear the remote temp flag
-      hp.setRemoteTemperature(0.0);
+      disableRemoteTempMode();
     }
     else {
+      lastRemoteTempSet = temperature;
       remoteTempActive = true; //Remote temp has been pushed.
       lastRemoteTemp = millis(); //Note time
       hp.setRemoteTemperature(convertLocalUnitToCelsius(temperature, useFahrenheit));
@@ -1825,6 +1832,40 @@ void haConfig() {
   mqtt_client.endPublish();
 }
 
+void haRemoteTemperatureConfig() {
+
+  const size_t capacity = JSON_OBJECT_SIZE(24) + 2048;
+  DynamicJsonDocument haConfig(capacity);
+
+  haConfig["name"]                          = "Remote Temperature";
+  haConfig["unique_id"]                     = getId() + "-remote-temp";
+
+  haConfig["cmd_t"]                         = ha_remote_temp_set_topic;
+  haConfig["stat_t"]                        = ha_state_topic;
+  haConfig["val_tpl"]                       = F("{{ value_json.lastRemoteTempSet if (value_json is defined and value_json.lastRemoteTempSet is defined) }}");
+  haConfig["ent_cat"]                       = "diagnostic";
+
+  haConfig["device_class"]                  = "temperature";
+  haConfig["unit_of_measurement"]           = useFahrenheit ? "F" : "C";
+  haConfig["min"]                           = 0;
+  haConfig["max"]                           = 100;
+  haConfig["mode"]                          = "box";
+
+  haConfig["avty_t"]                        = ha_availability_topic; // MQTT last will (status) messages topic
+  haConfig["pl_not_avail"]                  = mqtt_payload_unavailable; // MQTT offline message payload
+  haConfig["pl_avail"]                      = mqtt_payload_available; // MQTT online message payload
+
+  JsonObject haConfigDevice = haConfig.createNestedObject("device");
+  haConfigDevice["ids"]   = mqtt_fn;
+
+  String mqttOutput;
+  serializeJson(haConfig, mqttOutput);
+  String topic = others_haa_topic + "/number/" + mqtt_fn + "-remote-temp" + "/config";
+  mqtt_client.beginPublish(topic.c_str(), mqttOutput.length(), true);
+  mqtt_client.print(mqttOutput);
+  mqtt_client.endPublish();
+}
+
 void mqttConnect() {
   // Loop until we're reconnected
   int attempts = 0;
@@ -1861,6 +1902,7 @@ void mqttConnect() {
       mqtt_client.publish(ha_availability_topic.c_str(), mqtt_payload_available, true); //publish status as available
       if (others_haa) {
         haConfig();
+        haRemoteTemperatureConfig();
       }
     }
   }
@@ -1989,6 +2031,13 @@ bool checkLogin() {
   return true;
 }
 
+void disableRemoteTempMode() {
+  remoteTempActive = false;
+  lastRemoteTempSet = 0;
+  lastRemoteTemp = millis();
+  hp.setRemoteTemperature((float)0);
+}
+
 void loop() {
   server.handleClient();
   ArduinoOTA.handle();
@@ -2017,12 +2066,18 @@ void loop() {
         hpConnectionRetries = 0;
         hp.sync();
 
-        // if the external remote temperature feed from is stale, disable it and revert to the internal thermometer.
-        if (remoteTempActive && (millis() - lastRemoteTemp > CHECK_REMOTE_TEMP_INTERVAL_MS)) {
-          remoteTempActive = false;
-          float temperature = 0;
-          hp.setRemoteTemperature(temperature);
-          hp.update();
+        if (remoteTempActive) {
+          // If the remote temperature feed from is stale, ensure it is disabled and revert to the internal thermometer.
+          if (millis() - lastRemoteTemp > CHECK_REMOTE_TEMP_INTERVAL_MS) {
+            write_log(PRI_INFO, "Remote temp active but not received for %dms, resetting", CHECK_REMOTE_TEMP_INTERVAL_MS);
+            disableRemoteTempMode();
+          }
+        } else {
+          if (millis() - lastRemoteTemp > CHECK_REMOTE_TEMP_INTERVAL_MS) {
+            write_log(PRI_INFO, "Periodically ensuring internal thermometer");
+            hp.setRemoteTemperature((float)0);
+            lastRemoteTemp = millis();
+          }
         }
     }
 
